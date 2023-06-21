@@ -46,7 +46,7 @@ def clone_from_github(REPO_URL, LOCAL_REPO_PATH):
     else:
         # otherwise, clone the repo
         print(f"Cloning {repo_url} into {temp_dir}")
-        subprocess.run(["git", "clone", repo_url, temp_dir], check=True)
+        subprocess.run(["git", "clone", "--depth", "4", repo_url, temp_dir], check=True)
 
     return
 
@@ -91,6 +91,9 @@ def process_file_list(temp_dir):
         for filename in files:
             if not is_unwanted_file(filename, unwanted_files, unwanted_extensions):
                 file_path = os.path.join(root, filename)
+                if Path(file_path).is_symlink():
+                    continue
+
                 if ".git" in file_path:
                     continue
                 with open(file_path, "r") as file:
