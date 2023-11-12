@@ -1,6 +1,7 @@
 
 import os
 import re
+import json
 import queue
 import openai
 import shutil
@@ -9,10 +10,10 @@ import tempfile
 import threading
 import subprocess
 import pandas as pd
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from dotenv import load_dotenv
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, AsyncGenerator
 from fastapi.responses import StreamingResponse
 from langchain.embeddings import OpenAIEmbeddings
 from fastapi.middleware.cors import CORSMiddleware
@@ -54,6 +55,16 @@ def get_local_repo_path():
     return LOCAL_REPO_PATH
 
 LOCAL_REPO_PATH = get_local_repo_path()
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class ChatCompletionRequest(BaseModel):
+    model: str
+    messages: List[ChatMessage]
+    stream: bool
+
 
 class RepoInfo(BaseModel):
     repo: str
@@ -156,6 +167,33 @@ def health(): return "OK"
 
 @app.get("/")
 def healthroot(): return "OK"
+
+@app.post("/v1/chat/completions")
+async def chat_completions(completion_request: ChatCompletionRequest) -> StreamingResponse:
+    # Check if a valid model was specified
+    if completion_request.model != "gpt-4-1106-preview":
+        raise HTTPException(status_code=400, detail="Invalid model specified")
+
+    # Package chat history into the format expected by the OpenAI API
+    chat_history = [
+        {"role": message.role, "content": message.content}
+        for message in completion_request.messages
+    ]
+
+    # Make API call to OpenAI
+    response = openai.ChatCompletion.create(
+        model=completion_request.model,
+        messages=chat_history,
+        max_tokens=1000  # Adjust the number of tokens as needed
+    )
+
+    # Wrap the response content into an AsyncGenerator
+    async def response_stream() -> AsyncGenerator[str, None]:
+        serialized_response = json.dumps(response).encode('utf-8')
+        yield serialized_response
+
+    # Return streaming response; it will iterate over the generator
+    return StreamingResponse(response_stream(), media_type="application/json")
 
 @app.post("/system_message", response_model = ContextSystemMessage)
 def system_message(query: Message): return dict(system_message = "\n\n".join([open("query-preamble.txt", "r").read().strip(), f"Context:\n{format_context(embedding_search(query.text, k = int(os.environ['CONTEXT_NUM'])), LOCAL_REPO_PATH)}", f"Grep Context:\n{grep_more_context(query)}", f"Commit messages:\n{get_last_commits_messages(LOCAL_REPO_PATH, 5)}"]))
