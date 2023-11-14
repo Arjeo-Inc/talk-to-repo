@@ -168,32 +168,65 @@ def health(): return "OK"
 @app.get("/")
 def healthroot(): return "OK"
 
+# # this ver of chat_completions does not use threading but works with the same notebook client code
+# @app.post("/v1/chat/completions")
+# async def chat_completions(completion_request: ChatCompletionRequest) -> StreamingResponse:
+#     # Check if a valid model was specified
+#     if completion_request.model != "gpt-4-1106-preview":
+#         raise HTTPException(status_code=400, detail="Invalid model specified")
+
+#     # Package chat history into the format expected by the language model API
+#     chat_history = [
+#         {"role": message.role, "content": message.content}
+#         for message in completion_request.messages
+#     ]
+
+#     # Make API call to the language model with the packaged chat history
+#     response = openai.ChatCompletion.create(
+#         model=completion_request.model,
+#         messages=chat_history,
+#         max_tokens=1000  # Adjust the number of tokens as needed
+#     )
+
+#     # Stream the response content as an AsyncGenerator
+#     async def response_stream() -> AsyncGenerator[str, None]:
+#         for message in response['choices']:
+#             yield message['message']['content']
+
+#     # Return the streaming response with a content type of application/json
+#     return StreamingResponse(response_stream(), media_type="application/json")
+
 @app.post("/v1/chat/completions")
 async def chat_completions(completion_request: ChatCompletionRequest) -> StreamingResponse:
     # Check if a valid model was specified
     if completion_request.model != "gpt-4-1106-preview":
         raise HTTPException(status_code=400, detail="Invalid model specified")
-
-    # Package chat history into the format expected by the OpenAI API
-    chat_history = [
-        {"role": message.role, "content": message.content}
-        for message in completion_request.messages
-    ]
-
-    # Make API call to OpenAI
+    
+    # Assume that openai.ChatCompletion.create now properly returns a valid response
     response = openai.ChatCompletion.create(
         model=completion_request.model,
-        messages=chat_history,
-        max_tokens=1000  # Adjust the number of tokens as needed
+        messages=[{"role":message.role, "content":message.content} for message in completion_request.messages],
+        max_tokens=1000,
     )
 
-    # Wrap the response content into an AsyncGenerator
-    async def response_stream() -> AsyncGenerator[str, None]:
-        serialized_response = json.dumps(response).encode('utf-8')
-        yield serialized_response
+    g = ThreadedGenerator()
 
-    # Return streaming response; it will iterate over the generator
-    return StreamingResponse(response_stream(), media_type="application/json")
+    def process_and_stream():
+        try:
+            # Assuming the response consists of complete messages to be streamed
+            for choice in response['choices']:
+                content = choice['message']['content']
+                # Send each character, letter by letter, to the queue
+                for letter in content:
+                    g.send(letter)
+                g.send(" ")  # Send a space after each message to separate them
+            g.close()
+        except Exception as e:
+            g.close()
+            raise e
+
+    threading.Thread(target=process_and_stream).start()
+    return StreamingResponse(iter(g), media_type="text/event-stream")
 
 @app.post("/system_message", response_model = ContextSystemMessage)
 def system_message(query: Message): return dict(system_message = "\n\n".join([open("query-preamble.txt", "r").read().strip(), f"Context:\n{format_context(embedding_search(query.text, k = int(os.environ['CONTEXT_NUM'])), LOCAL_REPO_PATH)}", f"Grep Context:\n{grep_more_context(query)}", f"Commit messages:\n{get_last_commits_messages(LOCAL_REPO_PATH, 5)}"]))
