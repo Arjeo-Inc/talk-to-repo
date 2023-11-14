@@ -9,6 +9,7 @@ import tiktoken
 import tempfile
 import threading
 import subprocess
+import requests
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from dotenv import load_dotenv
@@ -201,11 +202,28 @@ async def chat_completions(completion_request: ChatCompletionRequest) -> Streami
     # Check if a valid model was specified
     if completion_request.model != "gpt-4-1106-preview":
         raise HTTPException(status_code=400, detail="Invalid model specified")
-    
+
+    # Get system message if the messages list is empty or has only one user message
+    if len(completion_request.messages) <= 1:
+        user_input_message = completion_request.messages[0].content if completion_request.messages else ""
+        
+        # Call the existing system_message function to get the system message
+        system_message_response = system_message(Message(text=user_input_message, sender="user"))
+        # print(f"system message response: {system_message_response}")
+        system_content = system_message_response['system_message']
+        # print(f"system content: {system_content}")
+
+        # Construct the system message object
+        system_message_obj = ChatMessage(role="system", content=system_content)
+
+        # Prepend system message to the messages if there isn't already a system message
+        if not completion_request.messages or completion_request.messages[0].role != "system":
+            completion_request.messages.insert(0, system_message_obj)
+
     # Assume that openai.ChatCompletion.create now properly returns a valid response
     response = openai.ChatCompletion.create(
         model=completion_request.model,
-        messages=[{"role":message.role, "content":message.content} for message in completion_request.messages],
+        messages=[{"role": message.role, "content": message.content} for message in completion_request.messages],
         max_tokens=1000,
     )
 
