@@ -11,11 +11,11 @@ import threading
 import subprocess
 import requests
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from dotenv import load_dotenv
 from pydantic import BaseModel
 from typing import List, Optional, AsyncGenerator
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from langchain.embeddings import OpenAIEmbeddings
 from fastapi.middleware.cors import CORSMiddleware
 from langchain.chat_models import ChatAnthropic, ChatOpenAI
@@ -64,7 +64,7 @@ class ChatMessage(BaseModel):
 class ChatCompletionRequest(BaseModel):
     model: str
     messages: List[ChatMessage]
-    stream: bool
+    stream: Optional[bool] = False
 
 
 class RepoInfo(BaseModel):
@@ -169,82 +169,60 @@ def health(): return "OK"
 @app.get("/")
 def healthroot(): return "OK"
 
-# # this ver of chat_completions does not use threading but works with the same notebook client code
-# @app.post("/v1/chat/completions")
-# async def chat_completions(completion_request: ChatCompletionRequest) -> StreamingResponse:
-#     # Check if a valid model was specified
-#     if completion_request.model != "gpt-4-1106-preview":
-#         raise HTTPException(status_code=400, detail="Invalid model specified")
-
-#     # Package chat history into the format expected by the language model API
-#     chat_history = [
-#         {"role": message.role, "content": message.content}
-#         for message in completion_request.messages
-#     ]
-
-#     # Make API call to the language model with the packaged chat history
-#     response = openai.ChatCompletion.create(
-#         model=completion_request.model,
-#         messages=chat_history,
-#         max_tokens=1000  # Adjust the number of tokens as needed
-#     )
-
-#     # Stream the response content as an AsyncGenerator
-#     async def response_stream() -> AsyncGenerator[str, None]:
-#         for message in response['choices']:
-#             yield message['message']['content']
-
-#     # Return the streaming response with a content type of application/json
-#     return StreamingResponse(response_stream(), media_type="application/json")
+@app.get("/v1/models")
+async def models():
+    # Mock list of models
+    # models = [
+    #     Model(id="gpt-4", object="model", created=1687882411, owned_by="openai"),
+    #     # Add more mock models as needed
+    # ]
+    # return {"data": models}
+    return {"object": "list","data": [{
+      "id": "gpt-4-1106-preview",
+      "object": "model",
+      "created": 1698957206,
+      "owned_by": "system"
+    }]}
 
 @app.post("/v1/chat/completions")
-async def chat_completions(completion_request: ChatCompletionRequest) -> StreamingResponse:
-    # Check if a valid model was specified
-    if completion_request.model != "gpt-4-1106-preview":
-        raise HTTPException(status_code=400, detail="Invalid model specified")
+async def chat_completions(request: Request):  # Use Request directly to bypass ChatCompletionRequest model
+    body = await request.json()  # Parse the request body to a Python dict
 
-    # Get system message if the messages list is empty or has only one user message
-    if len(completion_request.messages) <= 1:
-        user_input_message = completion_request.messages[0].content if completion_request.messages else ""
-        
-        # Call the existing system_message function to get the system message
+    # Make sure the required fields are present
+    if 'model' not in body or 'messages' not in body:
+        raise HTTPException(status_code=400, detail="Request body must include 'model' and 'messages' fields")
+
+    # Validate the 'model' field
+    # if body['model'] != "gpt-4-1106-preview":
+    #     raise HTTPException(status_code=400, detail="Invalid model specified")
+
+    # Perform the same logic checks as before
+    if len(body['messages']) == 0 or (len(body['messages']) == 1 and body['messages'][0]['role'] == "user"):
+        user_input_message = body['messages'][0]['content'] if body['messages'] else ""
+        # Assume system_message is a defined function that returns a response containing a 'system_message'
         system_message_response = system_message(Message(text=user_input_message, sender="user"))
-        # print(f"system message response: {system_message_response}")
         system_content = system_message_response['system_message']
-        # print(f"system content: {system_content}")
+        # Insert the system message at the beginning of the messages list
+        body['messages'].insert(0, {"role": "system", "content": system_content})
 
-        # Construct the system message object
-        system_message_obj = ChatMessage(role="system", content=system_content)
-
-        # Prepend system message to the messages if there isn't already a system message
-        if not completion_request.messages or completion_request.messages[0].role != "system":
-            completion_request.messages.insert(0, system_message_obj)
-
-    # Assume that openai.ChatCompletion.create now properly returns a valid response
+    # Assume openai.ChatCompletion.create() is defined elsewhere in the application
     response = openai.ChatCompletion.create(
-        model=completion_request.model,
-        messages=[{"role": message.role, "content": message.content} for message in completion_request.messages],
-        max_tokens=1000,
+        model=body['model'],
+        messages=body['messages'],
+        max_tokens=1000,  # This would be part of the 'openai.ChatCompletion.create' function call
+        stream=False
     )
 
-    g = ThreadedGenerator()
-
-    def process_and_stream():
-        try:
-            # Assuming the response consists of complete messages to be streamed
-            for choice in response['choices']:
-                content = choice['message']['content']
-                # Send each character, letter by letter, to the queue
-                for letter in content:
-                    g.send(letter)
-                g.send(" ")  # Send a space after each message to separate them
-            g.close()
-        except Exception as e:
-            g.close()
-            raise e
-
-    threading.Thread(target=process_and_stream).start()
-    return StreamingResponse(iter(g), media_type="text/event-stream")
+    try:
+        # response_dict = response.to_dict()  # This will convert the response to a dictionary
+        # response_json = json.dumps(response_dict)  # Serialize the dictionary to a JSON string
+        print(f"response: {response}")
+        return response
+    # JSONResponse(content=response_json, media_type="application/json")  # Use FastAPI's JSONResponse for convenience
+    except AttributeError as e:
+        print(f"AttributeError occurred: {str(e)}")
+        print(f"Available attributes in response: {dir(response)}")
+        raise HTTPException(status_code=500, detail="An internal error occurred.")
 
 @app.post("/system_message", response_model = ContextSystemMessage)
 def system_message(query: Message): return dict(system_message = "\n\n".join([open("query-preamble.txt", "r").read().strip(), f"Context:\n{format_context(embedding_search(query.text, k = int(os.environ['CONTEXT_NUM'])), LOCAL_REPO_PATH)}", f"Grep Context:\n{grep_more_context(query)}", f"Commit messages:\n{get_last_commits_messages(LOCAL_REPO_PATH, 5)}"]))
