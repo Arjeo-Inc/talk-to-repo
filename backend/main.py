@@ -11,7 +11,7 @@ import threading
 import subprocess
 import requests
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response, Header, Depends
 from dotenv import load_dotenv
 from pydantic import BaseModel
 from typing import List, Optional, AsyncGenerator
@@ -163,6 +163,23 @@ def get_last_commit(repo_path):
     if result.returncode != 0: raise Exception(f"Error getting the last commit hash: {result.stderr.decode('utf-8')}")
     return result.stdout.decode("utf-8").strip()
 
+async def verify_api_key(authorization: str = Header(...)):
+      # Get talk to repo API key from environment variable
+      TTR_API_KEY = os.environ.get("TTR_API_KEY")
+      if not TTR_API_KEY:
+          print("TTR_API_KEY not set, allowing access")
+          
+          return True  # Allow access if TTR_API_KEY is not set
+      
+      prefix = "Bearer "
+      if not authorization.startswith(prefix):
+          raise HTTPException(status_code=401, detail="Invalid authorization header format.")
+
+      api_key = authorization[len(prefix):]  # Extract the API key from the header
+      if api_key != TTR_API_KEY:
+          raise HTTPException(status_code=401, detail="Invalid API Key")
+      return True
+
 @app.get("/health")
 def health(): return "OK"
 
@@ -185,7 +202,7 @@ async def models():
     }]}
 
 @app.post("/v1/chat/completions")
-async def chat_completions(request: Request):  # Use Request directly to bypass ChatCompletionRequest model
+async def chat_completions(request: Request, is_api_key_valid: bool = Depends(verify_api_key)):  # Use Request directly to bypass ChatCompletionRequest model
     body = await request.json()  # Parse the request body to a Python dict
 
     # Make sure the required fields are present
@@ -225,7 +242,10 @@ async def chat_completions(request: Request):  # Use Request directly to bypass 
         raise HTTPException(status_code=500, detail="An internal error occurred.")
 
 @app.post("/system_message", response_model = ContextSystemMessage)
-def system_message(query: Message): return dict(system_message = "\n\n".join([open("query-preamble.txt", "r").read().strip(), f"Context:\n{format_context(embedding_search(query.text, k = int(os.environ['CONTEXT_NUM'])), LOCAL_REPO_PATH)}", f"Grep Context:\n{grep_more_context(query)}", f"Commit messages:\n{get_last_commits_messages(LOCAL_REPO_PATH, 5)}"]))
+def system_message(query: Message): 
+    sm = dict(system_message = "\n\n".join([open("query-preamble.txt", "r").read().strip(), f"Context:\n{format_context(embedding_search(query.text, k = int(os.environ['CONTEXT_NUM'])), LOCAL_REPO_PATH)}", f"Grep Context:\n{grep_more_context(query)}", f"Commit messages:\n{get_last_commits_messages(LOCAL_REPO_PATH, 5)}"]))
+    # print(f"THE SYSTEM MESSAGE:\n\n{sm}")
+    return sm
 
 def clear_local_repo_path():
     global LOCAL_REPO_PATH
