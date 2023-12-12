@@ -242,7 +242,7 @@ async def chat_completions(request: Request, is_api_key_valid: bool = Depends(ve
         raise HTTPException(status_code=500, detail="An internal error occurred.")
 
 @app.post("/system_message", response_model = ContextSystemMessage)
-def system_message(query: Message): 
+def system_message(query: Message, is_api_key_valid: bool = Depends(verify_api_key)): 
     sm = dict(system_message = "\n\n".join([open("query-preamble.txt", "r").read().strip(), f"Context:\n{format_context(embedding_search(query.text, k = int(os.environ['CONTEXT_NUM'])), LOCAL_REPO_PATH)}", f"Grep Context:\n{grep_more_context(query)}", f"Commit messages:\n{get_last_commits_messages(LOCAL_REPO_PATH, 5)}"]))
     # print(f"THE SYSTEM MESSAGE:\n\n{sm}")
     return sm
@@ -274,7 +274,7 @@ def get_llm(g): return ChatOpenAI(model_name = os.environ["MODEL_NAME"], verbose
 def get_llm_anthropic(g): return ChatAnthropic(model = "claude-v1-100k", verbose = True, streaming = True, max_tokens_to_sample = 1000, callback_manager = AsyncCallbackManager([ChainStreamHandler(g)]), temperature = os.environ["TEMPERATURE"], anthropic_api_key = os.environ["ANTHROPIC_API_KEY"], )
 
 @app.post("/chat_stream")
-async def chat_stream(chat: List[Message]):
+async def chat_stream(chat: List[Message], is_api_key_valid: bool = Depends(verify_api_key)):
     print('In')
     encoding_name = "cl100k_base"
 
@@ -321,7 +321,7 @@ async def chat_stream(chat: List[Message]):
     return StreamingResponse(chat_fn(chat), media_type = "text/event-stream")
 
 @app.post("/load_repo")
-def load_repo(repo_info: RepoInfo):
+def load_repo(repo_info: RepoInfo, is_api_key_valid: bool = Depends(verify_api_key)):
     clear_local_repo_path()
     print(f"Loading repo: {repo_info.repo}")
     if repo_info.hostingPlatform == "github":
@@ -381,4 +381,4 @@ def create_commit_from_diffs(diffs):
     return True
 
 @app.post("/create_commit")
-def create_commit(diffs): return {"status": "success" if create_commit_from_diffs(diffs) else "error"}
+def create_commit(diffs, is_api_key_valid: bool = Depends(verify_api_key)): return {"status": "success" if create_commit_from_diffs(diffs) else "error"}
