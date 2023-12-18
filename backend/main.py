@@ -146,6 +146,7 @@ def format_query(query, context):
     {query}"""
 
 def extract_key_words(query):
+    print(f"extract_key_words, the query: ", query)
     prompt = f"Extract from the following query the key words, \
         which will be used to grep a codebase. \
         Return the key words as a comma-separated list. \
@@ -204,6 +205,9 @@ async def models():
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request, is_api_key_valid: bool = Depends(verify_api_key)):  # Use Request directly to bypass ChatCompletionRequest model
     body = await request.json()  # Parse the request body to a Python dict
+    
+    # print(f"body: {body}")
+
 
     # Make sure the required fields are present
     if 'model' not in body or 'messages' not in body:
@@ -216,11 +220,18 @@ async def chat_completions(request: Request, is_api_key_valid: bool = Depends(ve
     # Perform the same logic checks as before
     if len(body['messages']) == 0 or (len(body['messages']) == 1 and body['messages'][0]['role'] == "user"):
         user_input_message = body['messages'][0]['content'] if body['messages'] else ""
-        # Assume system_message is a defined function that returns a response containing a 'system_message'
         system_message_response = system_message(Message(text=user_input_message, sender="user"))
         system_content = system_message_response['system_message']
         # Insert the system message at the beginning of the messages list
         body['messages'].insert(0, {"role": "system", "content": system_content})
+        print("-- no system message provided")
+    elif len(body['messages']) > 0 and body['messages'][0]['role'] == "system":
+        user_input_message = body['messages'][1]['content'] if body['messages'] else ""
+        system_message_response = system_message(Message(text=user_input_message, sender="user"), sys_msg=body['messages'][0]['content'])
+        system_content = system_message_response['system_message']
+        # Replacethe system message at the beginning of the messages list
+        body['messages'][0] = {"role": "system", "content": system_content}
+        print("-- system message is provided")
 
     # Assume openai.ChatCompletion.create() is defined elsewhere in the application
     response = openai.ChatCompletion.create(
@@ -242,9 +253,15 @@ async def chat_completions(request: Request, is_api_key_valid: bool = Depends(ve
         raise HTTPException(status_code=500, detail="An internal error occurred.")
 
 @app.post("/system_message", response_model = ContextSystemMessage)
-def system_message(query: Message, is_api_key_valid: bool = Depends(verify_api_key)): 
-    sm = dict(system_message = "\n\n".join([open("query-preamble.txt", "r").read().strip(), f"Context:\n{format_context(embedding_search(query.text, k = int(os.environ['CONTEXT_NUM'])), LOCAL_REPO_PATH)}", f"Grep Context:\n{grep_more_context(query)}", f"Commit messages:\n{get_last_commits_messages(LOCAL_REPO_PATH, 5)}"]))
-    # print(f"THE SYSTEM MESSAGE:\n\n{sm}")
+def system_message(query: Message, is_api_key_valid: bool = Depends(verify_api_key), sys_msg = ""): 
+    if len(sys_msg) == 0:
+        sm = dict(system_message = "\n\n".join([open("query-preamble.txt", "r").read().strip(), f"Context:\n{format_context(embedding_search(query.text, k = int(os.environ['CONTEXT_NUM'])), LOCAL_REPO_PATH)}", f"Grep Context:\n{grep_more_context(query.text)}", f"Commit messages:\n{get_last_commits_messages(LOCAL_REPO_PATH, 5)}"]))
+        # print(f"TTR SYSTEM MESSAGE:\n\n{sm}")
+    else:
+        stripped_sys_msg = sys_msg.strip()
+        # print(f"Stripped Typebot sys_msg: {stripped_sys_msg}")
+        sm = dict(system_message = "\n\n".join([stripped_sys_msg, f"Context:\n{format_context(embedding_search(query.text, k = int(os.environ['CONTEXT_NUM'])), LOCAL_REPO_PATH)}", f"Grep Context:\n{grep_more_context(query.text)}", f"Commit messages:\n{get_last_commits_messages(LOCAL_REPO_PATH, 5)}"]))
+        # print(f"TYPEBOT SYSTEM MESSAGE:\n\n{sm}")
     return sm
 
 def clear_local_repo_path():
@@ -267,7 +284,7 @@ def grep_more_context(query):
         print(f"Working in directory: {LOCAL_REPO_PATH}")
         output = subprocess.run(["git", "grep", "-C 5", "-h", "-e", keyword, "--", "."], cwd = LOCAL_REPO_PATH, stdout = subprocess.PIPE, stderr = subprocess.PIPE, ).stdout
         context_from_key_words += output.decode("utf-8") + "\n\n"
-        print(f"Context from key word: {context_from_key_words}")
+        # print(f"Context from key word: {context_from_key_words}")
     return context_from_key_words[:1000]
 
 def get_llm(g): return ChatOpenAI(model_name = os.environ["MODEL_NAME"], verbose = True, streaming = True, callback_manager = AsyncCallbackManager([ChainStreamHandler(g)]), temperature = os.environ["TEMPERATURE"], openai_api_key = os.environ["OPENAI_API_KEY"], openai_organization = os.environ["OPENAI_ORG_ID"], )
