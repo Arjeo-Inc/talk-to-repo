@@ -36,7 +36,8 @@ jobs:
                   "3000": "HTTP"
                 },
                 "environment": {
-                  "NEXT_PUBLIC_BACKEND_URL": "${{ secrets.NEXT_PUBLIC_BACKEND_URL }}"
+                  "NEXT_PUBLIC_BACKEND_URL": "${{ secrets.NEXT_PUBLIC_BACKEND_URL }}",
+                  "NEXT_PUBLIC_TTR_API_KEY": "${{ secrets.NEXT_PUBLIC_TTR_API_KEY }}"
                 }
               }
             }' \
@@ -73,6 +74,8 @@ jobs:
                   "CHUNK_OVERLAP": "${{ secrets.CHUNK_OVERLAP }}",
                   "ANTHROPIC_API_KEY": "${{ secrets.ANTHROPIC_API_KEY }}",
                   "USE_ANTHROPIC": "${{ secrets.USE_ANTHROPIC }}",
+                  "USE_CHROMA": "${{ secrets.USE_CHROMA }}",
+                  "TTR_API_KEY": "${{ secrets.TTR_API_KEY }}"
                   "USE_CHROMA": "${{ secrets.USE_CHROMA }}"
                 }
               }
