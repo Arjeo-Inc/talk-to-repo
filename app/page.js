@@ -25,7 +25,7 @@ export default function Home() {
     const handleCollectCodeBlock = (code) => {
         setCollectedCodeBlocks((prevBlocks) => [...prevBlocks, code]);
     };
-      
+
     const clearMessages = () => {
         setMessages([]);
         setCollectedCodeBlocks([]); 
@@ -46,7 +46,7 @@ export default function Home() {
           return updatedExpanded;
         });
       };
-      
+
     const getSystemMessage = async (userInputMessage) => {
         const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/system_message`, {
             method: 'POST',
@@ -66,11 +66,11 @@ export default function Home() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(collectedCodeBlocks.map(block => ({ diff: block }))),
           });
-      
+
           if (!response.ok) {
             throw new Error('Error creating commit');
           }
-      
+
           const data = await response.json();
           if (data.status === 'success') {
             console.log('Commit created successfully');
@@ -81,7 +81,7 @@ export default function Home() {
           console.error('Error creating commit:', error);
         }
       };
-      
+
     const handleSubmit = async (e) => {
         e.preventDefault()
 
@@ -115,6 +115,7 @@ export default function Home() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'Authorization': `Bearer ${process.env.NEXT_PUBLIC_TTR_API_KEY}`,
             },
             body: JSON.stringify(updatedMessages),
         })
