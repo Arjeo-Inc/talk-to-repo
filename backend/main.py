@@ -123,13 +123,7 @@ def format_context(docs, LOCAL_REPO_PATH):
     for i, (document_id, data_parts) in enumerate(aggregated_docs.items()):
         content_parts = data_parts["content"]
         context_segments = data_parts["segments"]
-        entire_file_token_count = corpus_summary.loc[corpus_summary["file_name"] == document_id]["n_tokens"].values[0]
-        content_parts_token_count = sum([len(encoder.encode(cp)) for cp in content_parts])
-        if content_parts_token_count / entire_file_token_count > 0.5:
-            with open(LOCAL_REPO_PATH + "/" + document_id, "r") as f: file_contents = f.read()
-            context_parts.append(f"[{i}] Full file {document_id}:\n" + add_line_numbers(file_contents))
-        else:
-            for i in range(len(context_segments)): context_parts.append(f"[{i}] this segment contains text from line {context_segments[i][0][0]} in position {context_segments[i][0][1]}  \n to line {context_segments[i][1][0]} and position {context_segments[i][1][1]}" + f" of file {document_id}:\n {add_line_numbers(content_parts[i], start = context_segments[i][0][0])}" + "\n---\n")
+        for i in range(len(context_segments)): context_parts.append(f"[{i}] this segment contains text from line {context_segments[i][0][0]} in position {context_segments[i][0][1]}  \n to line {context_segments[i][1][0]} and position {context_segments[i][1][1]}" + f" of file {document_id}:\n {add_line_numbers(content_parts[i], start = context_segments[i][0][0])}" + "\n---\n")
     return "\n\n".join(context_parts)
 
 def repl(m):
