@@ -41,4 +41,4 @@ build
 **/backend/data
 fly.toml
 embeddings_exploration.ipynb
-.venv/*
+backend/.venv/*

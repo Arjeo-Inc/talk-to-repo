@@ -1,6 +1,7 @@
 
 import os
 import re
+import json
 import queue
 import openai
 import shutil
@@ -8,12 +9,13 @@ import tiktoken
 import tempfile
 import threading
 import subprocess
+import requests
 import pandas as pd
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request, Response, Header, Depends
 from dotenv import load_dotenv
 from pydantic import BaseModel
-from typing import List, Optional
-from fastapi.responses import StreamingResponse
+from typing import List, Optional, AsyncGenerator
+from fastapi.responses import StreamingResponse, JSONResponse
 from langchain.embeddings import OpenAIEmbeddings
 from fastapi.middleware.cors import CORSMiddleware
 from langchain.chat_models import ChatAnthropic, ChatOpenAI
@@ -54,6 +56,16 @@ def get_local_repo_path():
     return LOCAL_REPO_PATH
 
 LOCAL_REPO_PATH = get_local_repo_path()
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class ChatCompletionRequest(BaseModel):
+    model: str
+    messages: List[ChatMessage]
+    stream: Optional[bool] = False
+
 
 class RepoInfo(BaseModel):
     repo: str
@@ -134,6 +146,7 @@ def format_query(query, context):
     {query}"""
 
 def extract_key_words(query):
+    print(f"extract_key_words, the query: ", query)
     prompt = f"Extract from the following query the key words, \
         which will be used to grep a codebase. \
         Return the key words as a comma-separated list. \
@@ -151,14 +164,105 @@ def get_last_commit(repo_path):
     if result.returncode != 0: raise Exception(f"Error getting the last commit hash: {result.stderr.decode('utf-8')}")
     return result.stdout.decode("utf-8").strip()
 
+async def verify_api_key(authorization: str = Header(...)):
+      # Get talk to repo API key from environment variable
+      TTR_API_KEY = os.environ.get("TTR_API_KEY")
+      if not TTR_API_KEY:
+          print("TTR_API_KEY not set, allowing access")
+          
+          return True  # Allow access if TTR_API_KEY is not set
+      
+      prefix = "Bearer "
+      if not authorization.startswith(prefix):
+          raise HTTPException(status_code=401, detail="Invalid authorization header format.")
+
+      api_key = authorization[len(prefix):]  # Extract the API key from the header
+      if api_key != TTR_API_KEY:
+          raise HTTPException(status_code=401, detail="Invalid API Key")
+      return True
+
 @app.get("/health")
 def health(): return "OK"
 
 @app.get("/")
 def healthroot(): return "OK"
 
+@app.get("/v1/models")
+async def models():
+    # Mock list of models
+    # models = [
+    #     Model(id="gpt-4", object="model", created=1687882411, owned_by="openai"),
+    #     # Add more mock models as needed
+    # ]
+    # return {"data": models}
+    return {"object": "list","data": [{
+      "id": "gpt-4-1106-preview",
+      "object": "model",
+      "created": 1698957206,
+      "owned_by": "system"
+    }]}
+
+@app.post("/v1/chat/completions")
+async def chat_completions(request: Request, is_api_key_valid: bool = Depends(verify_api_key)):  # Use Request directly to bypass ChatCompletionRequest model
+    body = await request.json()  # Parse the request body to a Python dict
+    
+    # print(f"body: {body}")
+
+
+    # Make sure the required fields are present
+    if 'model' not in body or 'messages' not in body:
+        raise HTTPException(status_code=400, detail="Request body must include 'model' and 'messages' fields")
+
+    # Validate the 'model' field
+    # if body['model'] != "gpt-4-1106-preview":
+    #     raise HTTPException(status_code=400, detail="Invalid model specified")
+
+    # Perform the same logic checks as before
+    if len(body['messages']) == 0 or (len(body['messages']) == 1 and body['messages'][0]['role'] == "user"):
+        user_input_message = body['messages'][0]['content'] if body['messages'] else ""
+        system_message_response = system_message(Message(text=user_input_message, sender="user"))
+        system_content = system_message_response['system_message']
+        # Insert the system message at the beginning of the messages list
+        body['messages'].insert(0, {"role": "system", "content": system_content})
+        print("-- no system message provided")
+    elif len(body['messages']) > 0 and body['messages'][0]['role'] == "system":
+        user_input_message = body['messages'][1]['content'] if body['messages'] else ""
+        system_message_response = system_message(Message(text=user_input_message, sender="user"), sys_msg=body['messages'][0]['content'])
+        system_content = system_message_response['system_message']
+        # Replacethe system message at the beginning of the messages list
+        body['messages'][0] = {"role": "system", "content": system_content}
+        print("-- system message is provided")
+
+    # Assume openai.ChatCompletion.create() is defined elsewhere in the application
+    response = openai.ChatCompletion.create(
+        model=body['model'],
+        messages=body['messages'],
+        max_tokens=1000,  # This would be part of the 'openai.ChatCompletion.create' function call
+        stream=False
+    )
+
+    try:
+        # response_dict = response.to_dict()  # This will convert the response to a dictionary
+        # response_json = json.dumps(response_dict)  # Serialize the dictionary to a JSON string
+        print(f"response: {response}")
+        return response
+    # JSONResponse(content=response_json, media_type="application/json")  # Use FastAPI's JSONResponse for convenience
+    except AttributeError as e:
+        print(f"AttributeError occurred: {str(e)}")
+        print(f"Available attributes in response: {dir(response)}")
+        raise HTTPException(status_code=500, detail="An internal error occurred.")
+
 @app.post("/system_message", response_model = ContextSystemMessage)
-def system_message(query: Message): return dict(system_message = "\n\n".join([open("query-preamble.txt", "r").read().strip(), f"Context:\n{format_context(embedding_search(query.text, k = int(os.environ['CONTEXT_NUM'])), LOCAL_REPO_PATH)}", f"Grep Context:\n{grep_more_context(query)}", f"Commit messages:\n{get_last_commits_messages(LOCAL_REPO_PATH, 5)}"]))
+def system_message(query: Message, is_api_key_valid: bool = Depends(verify_api_key), sys_msg = ""): 
+    if len(sys_msg) == 0:
+        sm = dict(system_message = "\n\n".join([open("query-preamble.txt", "r").read().strip(), f"Context:\n{format_context(embedding_search(query.text, k = int(os.environ['CONTEXT_NUM'])), LOCAL_REPO_PATH)}", f"Grep Context:\n{grep_more_context(query.text)}", f"Commit messages:\n{get_last_commits_messages(LOCAL_REPO_PATH, 5)}"]))
+        # print(f"TTR SYSTEM MESSAGE:\n\n{sm}")
+    else:
+        stripped_sys_msg = sys_msg.strip()
+        # print(f"Stripped Typebot sys_msg: {stripped_sys_msg}")
+        sm = dict(system_message = "\n\n".join([stripped_sys_msg, f"Context:\n{format_context(embedding_search(query.text, k = int(os.environ['CONTEXT_NUM'])), LOCAL_REPO_PATH)}", f"Grep Context:\n{grep_more_context(query.text)}", f"Commit messages:\n{get_last_commits_messages(LOCAL_REPO_PATH, 5)}"]))
+        # print(f"TYPEBOT SYSTEM MESSAGE:\n\n{sm}")
+    return sm
 
 def clear_local_repo_path():
     global LOCAL_REPO_PATH
@@ -180,14 +284,14 @@ def grep_more_context(query):
         print(f"Working in directory: {LOCAL_REPO_PATH}")
         output = subprocess.run(["git", "grep", "-C 5", "-h", "-e", keyword, "--", "."], cwd = LOCAL_REPO_PATH, stdout = subprocess.PIPE, stderr = subprocess.PIPE, ).stdout
         context_from_key_words += output.decode("utf-8") + "\n\n"
-        print(f"Context from key word: {context_from_key_words}")
+        # print(f"Context from key word: {context_from_key_words}")
     return context_from_key_words[:1000]
 
 def get_llm(g): return ChatOpenAI(model_name = os.environ["MODEL_NAME"], verbose = True, streaming = True, callback_manager = AsyncCallbackManager([ChainStreamHandler(g)]), temperature = os.environ["TEMPERATURE"], openai_api_key = os.environ["OPENAI_API_KEY"], openai_organization = os.environ["OPENAI_ORG_ID"], )
 def get_llm_anthropic(g): return ChatAnthropic(model = "claude-v1-100k", verbose = True, streaming = True, max_tokens_to_sample = 1000, callback_manager = AsyncCallbackManager([ChainStreamHandler(g)]), temperature = os.environ["TEMPERATURE"], anthropic_api_key = os.environ["ANTHROPIC_API_KEY"], )
 
 @app.post("/chat_stream")
-async def chat_stream(chat: List[Message]):
+async def chat_stream(chat: List[Message], is_api_key_valid: bool = Depends(verify_api_key)):
     print('In')
     encoding_name = "cl100k_base"
 
@@ -234,7 +338,7 @@ async def chat_stream(chat: List[Message]):
     return StreamingResponse(chat_fn(chat), media_type = "text/event-stream")
 
 @app.post("/load_repo")
-def load_repo(repo_info: RepoInfo):
+def load_repo(repo_info: RepoInfo, is_api_key_valid: bool = Depends(verify_api_key)):
     clear_local_repo_path()
     print(f"Loading repo: {repo_info.repo}")
     if repo_info.hostingPlatform == "github":
@@ -294,4 +398,4 @@ def create_commit_from_diffs(diffs):
     return True
 
 @app.post("/create_commit")
-def create_commit(diffs): return {"status": "success" if create_commit_from_diffs(diffs) else "error"}
+def create_commit(diffs, is_api_key_valid: bool = Depends(verify_api_key)): return {"status": "success" if create_commit_from_diffs(diffs) else "error"}
