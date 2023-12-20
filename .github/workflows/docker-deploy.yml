@@ -75,7 +75,7 @@ jobs:
                   "ANTHROPIC_API_KEY": "${{ secrets.ANTHROPIC_API_KEY }}",
                   "USE_ANTHROPIC": "${{ secrets.USE_ANTHROPIC }}",
                   "USE_CHROMA": "${{ secrets.USE_CHROMA }}",
-                  "TTR_API_KEY": "${{ secrets.TTR_API_KEY }}"
+                  "TTR_API_KEY": "${{ secrets.TTR_API_KEY }}",
                   "USE_CHROMA": "${{ secrets.USE_CHROMA }}"
                 }
               }
