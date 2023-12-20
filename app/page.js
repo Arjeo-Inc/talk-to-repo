@@ -52,6 +52,8 @@ export default function Home() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.NEXT_PUBLIC_TTR_API_KEY}`,
+                'Authorization': `Bearer ${process.env.NEXT_PUBLIC_TTR_API_KEY}`,
             },
             body: JSON.stringify(userInputMessage),
         })
@@ -115,6 +117,7 @@ export default function Home() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.NEXT_PUBLIC_TTR_API_KEY}`,
                 'Authorization': `Bearer ${process.env.NEXT_PUBLIC_TTR_API_KEY}`,
             },
             body: JSON.stringify(updatedMessages),
