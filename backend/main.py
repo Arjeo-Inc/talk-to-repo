@@ -198,10 +198,31 @@ async def models():
 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request, is_api_key_valid: bool = Depends(verify_api_key)):  # Use Request directly to bypass ChatCompletionRequest model
+    tools = [
+       {
+           "type": "function",
+           "function": {
+               "name": "get_context",
+               "description": "In order to get relevant data to answer the query, retrieve the embeddings that best match the query",
+               "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "The query to search for"
+                        }
+                     },
+                     "required": ["query"],
+                },
+               }
+
+       }
+   ]
+    
     body = await request.json()  # Parse the request body to a Python dict
     
-    # print(f"body: {body}")
-
+    print(f"body['messages']: {body['messages']}")
+    
 
     # Make sure the required fields are present
     if 'model' not in body or 'messages' not in body:
@@ -211,40 +232,64 @@ async def chat_completions(request: Request, is_api_key_valid: bool = Depends(ve
     # if body['model'] != "gpt-4-1106-preview":
     #     raise HTTPException(status_code=400, detail="Invalid model specified")
 
-    # Perform the same logic checks as before
-    if len(body['messages']) == 0 or (len(body['messages']) == 1 and body['messages'][0]['role'] == "user"):
-        user_input_message = body['messages'][0]['content'] if body['messages'] else ""
-        system_message_response = system_message(Message(text=user_input_message, sender="user"))
-        system_content = system_message_response['system_message']
-        # Insert the system message at the beginning of the messages list
-        body['messages'].insert(0, {"role": "system", "content": system_content})
-        print("-- no system message provided")
-    elif len(body['messages']) > 0 and body['messages'][0]['role'] == "system":
-        user_input_message = body['messages'][1]['content'] if body['messages'] else ""
-        system_message_response = system_message(Message(text=user_input_message, sender="user"), sys_msg=body['messages'][0]['content'])
-        system_content = system_message_response['system_message']
-        # Replacethe system message at the beginning of the messages list
-        body['messages'][0] = {"role": "system", "content": system_content}
-        print("-- system message is provided")
-
     # Assume openai.ChatCompletion.create() is defined elsewhere in the application
     response = openai.ChatCompletion.create(
         model=body['model'],
         messages=body['messages'],
         max_tokens=1000,  # This would be part of the 'openai.ChatCompletion.create' function call
-        stream=False
+        stream=False,
+        tools=tools,
+        # tool_choice="auto",
     )
 
-    try:
-        # response_dict = response.to_dict()  # This will convert the response to a dictionary
-        # response_json = json.dumps(response_dict)  # Serialize the dictionary to a JSON string
+    response_message = response.choices[0].message
+    print(f"response_message: {response_message}")
+    # populate tool_calls only if there are any
+    tool_calls = response_message.get("tool_calls")
+    if tool_calls:
+        print(f"tool_calls: {tool_calls}")
+        available_functions = {
+            "get_context": get_context,
+        } # only one function in this example, but you can have multiple
+        body['messages'].append(response_message) # extend conversation with assistant's reply
+        for tool_call in tool_calls:
+            function_name = tool_call.function.name
+            function_to_call = available_functions[function_name]
+            function_args = json.loads(tool_call.function.arguments)
+            function_response = function_to_call(
+                query=function_args.get("query"),
+            )
+            body['messages'].append(
+                {
+                    "tool_call_id": tool_call.id,
+                    "role": "tool",
+                    "name": function_name,
+                    "content": function_response,
+                }
+            ) # extend conversation with function response
+        second_response = openai.ChatCompletion.create(
+            model="gpt-4-1106-preview",
+            messages=body['messages'],
+        ) # get a new response from the model where it can see the function response
+        print(f"second_response: {second_response}")
+        return second_response
+    else:
         print(f"response: {response}")
         return response
-    # JSONResponse(content=response_json, media_type="application/json")  # Use FastAPI's JSONResponse for convenience
-    except AttributeError as e:
-        print(f"AttributeError occurred: {str(e)}")
-        print(f"Available attributes in response: {dir(response)}")
-        raise HTTPException(status_code=500, detail="An internal error occurred.")
+    # try:
+    #     # response_dict = response.to_dict()  # This will convert the response to a dictionary
+    #     # response_json = json.dumps(response_dict)  # Serialize the dictionary to a JSON string
+    #     print(f"response: {response}")
+    #     return response
+    # # JSONResponse(content=response_json, media_type="application/json")  # Use FastAPI's JSONResponse for convenience
+    # except AttributeError as e:
+    #     print(f"AttributeError occurred: {str(e)}")
+    #     print(f"Available attributes in response: {dir(response)}")
+    #     raise HTTPException(status_code=500, detail="An internal error occurred.")
+
+def get_context(query: str):
+    docs = embedding_search(query, k = int(os.environ["CONTEXT_NUM"]))
+    return format_context(docs, LOCAL_REPO_PATH)
 
 @app.post("/system_message", response_model = ContextSystemMessage)
 def system_message(query: Message, is_api_key_valid: bool = Depends(verify_api_key), sys_msg = ""): 
