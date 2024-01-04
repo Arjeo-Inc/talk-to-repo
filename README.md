@@ -129,6 +129,7 @@ uvicorn main:app --reload
 
 Now, you can access the app at `http://localhost:3000`.
 
+
 ## Potential improvements
 
 - The dependency on Pinecone could be removed and replaced with a local vector database
@@ -136,6 +137,17 @@ Now, you can access the app at `http://localhost:3000`.
 - The splitter could be improved. Right now, it's a character splitter that favors newlines, but OpenAI has implemented a similar one that splits on tokens instead.
 - Get inspired by Replit's Ghostwriter for the embeddings and retrieval mechanisms, to account for the hierarchy of code structure
 - Use [Tree-Sitter](https://github.com/tree-sitter) to traverse the repo and create embedding at the function / module level
+### CLI Support
+Add the following CLI commands:
+
+- `ttr load`: Load the current repo
+- `ttr code1 "<a coding task>"`: Execute a provided coding task
+- `ttr test "<a testing task>"`: Execute a provided testing task
+- `ttr doc "<the purpose of the document>"`: Generate a document with a given purpose
+- `ttr chat`: start a REPL
+
+Stay tuned for further updates!
+
 
 ## Credit
 
