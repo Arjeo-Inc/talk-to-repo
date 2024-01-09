@@ -146,7 +146,7 @@ def extract_key_words(query):
         Return the key words as a comma-separated list. \
         Query: {query}"
     openai.api_key = os.environ["OPENAI_API_KEY"]
-    return openai.Completion.create(engine = "text-davinci-002", prompt = prompt, max_tokens = 50, n = 1, stop = None, temperature = 0.5, ).choices[0].text.strip()
+    return openai.Completion.create(engine = "text-davinci-002", prompt = prompt, max_tokens = 50, n = 1, stop = None, temperature = 0.5).choices[0].text.strip()
 
 def get_last_commits_messages(repo_path, n = 20):
     result = subprocess.run(["git", "-C", repo_path, "log", f"-n {n}", "--pretty=format:%s%n%n%h %cI%n----%n", "--name-status", ], stdout = subprocess.PIPE, stderr = subprocess.PIPE, )
