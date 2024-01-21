@@ -3,7 +3,8 @@ import os
 import re
 import json
 import queue
-import openai
+from openai import OpenAI
+
 import shutil
 import tiktoken
 import tempfile
@@ -16,12 +17,13 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 from typing import List, Optional, AsyncGenerator
 from fastapi.responses import StreamingResponse, JSONResponse
-from langchain.embeddings import OpenAIEmbeddings
+from langchain_openai.embeddings import OpenAIEmbeddings
+from langchain_openai.chat_models import ChatOpenAI 
 from fastapi.middleware.cors import CORSMiddleware
-from langchain.chat_models import ChatAnthropic, ChatOpenAI
-from langchain.callbacks.manager import AsyncCallbackManager
+from langchain_community.chat_models import ChatAnthropic
+from langchain_core.callbacks.manager import AsyncCallbackManager
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
-from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
+from langchain_core.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 
 if os.environ.get("USE_CHROMA", "false") == "true":
     from create_vector_db_chroma import embedding_search, embed_into_db
@@ -30,6 +32,8 @@ else:
 
 load_dotenv()
 app = FastAPI()
+client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+
 origins = ["http://localhost", "http://localhost:3000", "http://frontend", "http://frontend:3000", *os.environ["ALLOWED_ORIGINS"].split(",")]
 app.add_middleware(CORSMiddleware, allow_origins = origins, allow_credentials = True, allow_methods = ["*"], allow_headers = ["*"])
 
@@ -101,6 +105,7 @@ class ChainStreamHandler(StreamingStdOutCallbackHandler):
         super().__init__()
         self.gen = gen
     def on_llm_new_token(self, token: str, **kwargs): self.gen.send(token)
+    def on_chat_model_start(self, serialized: dict, messages: list, **kwargs): pass #self.gen.send(serialized)
 
 def create_tempfile_with_content(content):
     temp_file = tempfile.NamedTemporaryFile(mode = "w", delete = False)
@@ -123,13 +128,8 @@ def format_context(docs, LOCAL_REPO_PATH):
     for i, (document_id, data_parts) in enumerate(aggregated_docs.items()):
         content_parts = data_parts["content"]
         context_segments = data_parts["segments"]
-        entire_file_token_count = corpus_summary.loc[corpus_summary["file_name"] == document_id]["n_tokens"].values[0]
-        content_parts_token_count = sum([len(encoder.encode(cp)) for cp in content_parts])
-        if content_parts_token_count / entire_file_token_count > 0.5:
-            with open(LOCAL_REPO_PATH + "/" + document_id, "r") as f: file_contents = f.read()
-            context_parts.append(f"[{i}] Full file {document_id}:\n" + add_line_numbers(file_contents))
-        else:
-            for i in range(len(context_segments)): context_parts.append(f"[{i}] this segment contains text from line {context_segments[i][0][0]} in position {context_segments[i][0][1]}  \n to line {context_segments[i][1][0]} and position {context_segments[i][1][1]}" + f" of file {document_id}:\n {add_line_numbers(content_parts[i], start = context_segments[i][0][0])}" + "\n---\n")
+        for i in range(len(context_segments)):
+            context_parts.append(f"[{i}] this segment contains text from line {context_segments[i][0][0]} in position {context_segments[i][0][1]}  \n to line {context_segments[i][1][0]} and position {context_segments[i][1][1]}" + f" of file {document_id}:\n {add_line_numbers(content_parts[i], start = context_segments[i][0][0])}" + "\n---\n")
     return "\n\n".join(context_parts)
 
 def repl(m):
@@ -151,8 +151,7 @@ def extract_key_words(query):
         which will be used to grep a codebase. \
         Return the key words as a comma-separated list. \
         Query: {query}"
-    openai.api_key = os.environ["OPENAI_API_KEY"]
-    return openai.Completion.create(engine = "text-davinci-002", prompt = prompt, max_tokens = 50, n = 1, stop = None, temperature = 0.5, ).choices[0].text.strip()
+    return client.chat.completions.create(model = "gpt-3.5-turbo", messages = [{"role": "user", "content": prompt}], max_tokens = 50, n = 1, stop = None, temperature = 0.5).choices[0].message.content.strip()
 
 def get_last_commits_messages(repo_path, n = 20):
     result = subprocess.run(["git", "-C", repo_path, "log", f"-n {n}", "--pretty=format:%s%n%n%h %cI%n----%n", "--name-status", ], stdout = subprocess.PIPE, stderr = subprocess.PIPE, )
@@ -189,12 +188,6 @@ def healthroot(): return "OK"
 
 @app.get("/v1/models")
 async def models():
-    # Mock list of models
-    # models = [
-    #     Model(id="gpt-4", object="model", created=1687882411, owned_by="openai"),
-    #     # Add more mock models as needed
-    # ]
-    # return {"data": models}
     return {"object": "list","data": [{
       "id": "gpt-4-1106-preview",
       "object": "model",
@@ -202,21 +195,21 @@ async def models():
       "owned_by": "system"
     }]}
 
+def get_llm(g): return ChatOpenAI(model_name = os.environ["MODEL_NAME"], verbose = True, streaming = True, callback_manager = AsyncCallbackManager([ChainStreamHandler(g)]), temperature = os.environ["TEMPERATURE"], openai_api_key = os.environ["OPENAI_API_KEY"], openai_organization = os.environ["OPENAI_ORG_ID"], max_tokens=1000 )
+def get_llm_anthropic(g): return ChatAnthropic(model = os.environ["MODEL_NAME"], verbose = True, streaming = True, max_tokens_to_sample = 1000, callback_manager = AsyncCallbackManager([ChainStreamHandler(g)]), temperature = os.environ["TEMPERATURE"], anthropic_api_key = os.environ["ANTHROPIC_API_KEY"], )
+
 @app.post("/v1/chat/completions")
-async def chat_completions(request: Request, is_api_key_valid: bool = Depends(verify_api_key)):  # Use Request directly to bypass ChatCompletionRequest model
-    body = await request.json()  # Parse the request body to a Python dict
+async def chat_completions(request: Request, is_api_key_valid: bool = Depends(verify_api_key)):
+    print("In chat_completions") 
+
+    body = await request.json()  
     
-    # print(f"body: {body}")
-
-
     # Make sure the required fields are present
     if 'model' not in body or 'messages' not in body:
         raise HTTPException(status_code=400, detail="Request body must include 'model' and 'messages' fields")
 
-    # Validate the 'model' field
-    # if body['model'] != "gpt-4-1106-preview":
-    #     raise HTTPException(status_code=400, detail="Invalid model specified")
-
+    print(f"body['messages']: {body['messages']}")
+    
     # Perform the same logic checks as before
     if len(body['messages']) == 0 or (len(body['messages']) == 1 and body['messages'][0]['role'] == "user"):
         user_input_message = body['messages'][0]['content'] if body['messages'] else ""
@@ -232,25 +225,31 @@ async def chat_completions(request: Request, is_api_key_valid: bool = Depends(ve
         # Replacethe system message at the beginning of the messages list
         body['messages'][0] = {"role": "system", "content": system_content}
         print("-- system message is provided")
+    
+    messages=body['messages']
 
-    # Assume openai.ChatCompletion.create() is defined elsewhere in the application
-    response = openai.ChatCompletion.create(
-        model=body['model'],
-        messages=body['messages'],
-        max_tokens=1000,  # This would be part of the 'openai.ChatCompletion.create' function call
-        stream=False
-    )
+    if 'stream' in body and body['stream'] == False:
+        response = client.chat.completions.create(
+            model=body['model'],
+            messages=messages,
+            max_tokens= ['max_tokens'] if 'max_tokens' in body else "1000",
+            stream=body['stream'] if 'stream' in body else False
+        )
+    else:
+        def llm_thread(g, chat):
+            try:
+                if os.environ["USE_ANTHROPIC"] == "true": llm = get_llm_anthropic(g)
+                else: llm = get_llm(g)
+                llm(chat)
+            finally: g.close()
+        def chat_fn(chat):
+            g = ThreadedGenerator()
+            threading.Thread(target = llm_thread, args = (g, chat)).start()
+            return g
 
-    try:
-        # response_dict = response.to_dict()  # This will convert the response to a dictionary
-        # response_json = json.dumps(response_dict)  # Serialize the dictionary to a JSON string
-        print(f"response: {response}")
-        return response
-    # JSONResponse(content=response_json, media_type="application/json")  # Use FastAPI's JSONResponse for convenience
-    except AttributeError as e:
-        print(f"AttributeError occurred: {str(e)}")
-        print(f"Available attributes in response: {dir(response)}")
-        raise HTTPException(status_code=500, detail="An internal error occurred.")
+        response = StreamingResponse(chat_fn(messages), media_type = "text/event-stream")
+
+    return response
 
 @app.post("/system_message", response_model = ContextSystemMessage)
 def system_message(query: Message, is_api_key_valid: bool = Depends(verify_api_key), sys_msg = ""): 
@@ -287,8 +286,6 @@ def grep_more_context(query):
         # print(f"Context from key word: {context_from_key_words}")
     return context_from_key_words[:1000]
 
-def get_llm(g): return ChatOpenAI(model_name = os.environ["MODEL_NAME"], verbose = True, streaming = True, callback_manager = AsyncCallbackManager([ChainStreamHandler(g)]), temperature = os.environ["TEMPERATURE"], openai_api_key = os.environ["OPENAI_API_KEY"], openai_organization = os.environ["OPENAI_ORG_ID"], )
-def get_llm_anthropic(g): return ChatAnthropic(model = "claude-v1-100k", verbose = True, streaming = True, max_tokens_to_sample = 1000, callback_manager = AsyncCallbackManager([ChainStreamHandler(g)]), temperature = os.environ["TEMPERATURE"], anthropic_api_key = os.environ["ANTHROPIC_API_KEY"], )
 
 @app.post("/chat_stream")
 async def chat_stream(chat: List[Message], is_api_key_valid: bool = Depends(verify_api_key)):
@@ -365,7 +362,7 @@ def load_repo(repo_info: RepoInfo, is_api_key_valid: bool = Depends(verify_api_k
     embed_into_db(REPO_URL, LOCAL_REPO_PATH)
     return {"status": "success", "message": "Repo loaded successfully", "last_commit": get_last_commit(LOCAL_REPO_PATH)}
 
-def call_gpt3(query, max_tokens, n = 1, temperature = 0.0): return openai.Completion.create(engine = "text-davinci-003", prompt = query, max_tokens = max_tokens, n = n, stop = None, temperature = temperature, ).choices[0].text.strip()
+def call_gpt3(query, max_tokens, n = 1, temperature = 0.0): return client.completions.create(engine = "text-davinci-003", prompt = query, max_tokens = max_tokens, n = n, stop = None, temperature = temperature).choices[0].text.strip()
 
 def grep_file_from_snippet(snippet):
     snippet = snippet.split("\n")[0]

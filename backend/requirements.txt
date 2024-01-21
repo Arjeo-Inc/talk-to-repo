@@ -1,9 +1,9 @@
-langchain==0.0.179
-openai==0.28.1
+langchain
+openai
 tiktoken
-fastapi==0.95.0
-uvicorn[standard]==0.21.1
-pinecone-client[grpc]==2.2.1
+fastapi
+uvicorn[standard]
+pinecone-client[grpc]
 hypercorn
 gunicorn
 pandas
@@ -12,3 +12,4 @@ detect_secrets
 python-patch
 anthropic
 sentence_transformers
+langchain_openai
