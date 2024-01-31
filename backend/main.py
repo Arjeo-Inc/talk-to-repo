@@ -241,7 +241,7 @@ async def chat_completions(request: Request, is_api_key_valid: bool = Depends(ve
     response_message = response.choices[0].message
     print(f"response_message: {response_message}")
     # populate tool_calls only if there are any
-    tool_calls = response_message.get("tool_calls")
+    tool_calls = response_message.tool_calls
     if tool_calls:
         print(f"tool_calls: {tool_calls}")
         available_functions = {
