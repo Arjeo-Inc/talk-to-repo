@@ -9,14 +9,17 @@ import subprocess
 import pandas as pd
 from pathlib import Path
 from dotenv import load_dotenv
-from langchain.vectorstores import Pinecone
+from langchain_community.vectorstores import Pinecone
 from langchain.docstore.document import Document
-from langchain.embeddings import OpenAIEmbeddings
+from langchain_openai.embeddings import OpenAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 load_dotenv()
 
-embeddings = OpenAIEmbeddings(openai_api_key = os.environ["OPENAI_API_KEY"], openai_organization = os.environ["OPENAI_ORG_ID"], )
+embeddings = OpenAIEmbeddings(
+    openai_api_key = os.environ["OPENAI_API_KEY"], 
+    openai_organization = os.environ["OPENAI_ORG_ID"], \
+    model = "text-embedding-3-large")
 encoder = tiktoken.get_encoding("cl100k_base")
 
 def clone_from_github(REPO_URL, LOCAL_REPO_PATH):
@@ -93,14 +96,15 @@ def process_file_list(temp_dir):
     Path("data").mkdir(parents = True, exist_ok = True)
     pd.DataFrame.from_records(corpus_summary).to_csv("data/corpus_summary.csv", index = False)
 
-vector_store = Pinecone(index = pinecone.Index(os.environ["PINECONE_INDEX"]), embedding_function = embeddings.embed_query, text_key = "text", namespace = os.environ["NAMESPACE"])
+vector_store = Pinecone(index = pinecone.Index(api_key = os.environ["PINECONE_API_KEY"], index = os.environ["PINECONE_INDEX"], host= os.environ["PINECONE_HOST"]), 
+                        text_key = "text", namespace = os.environ["NAMESPACE"], embedding= embeddings)
 splitter = RecursiveCharacterTextSplitter(chunk_size = int(os.environ["CHUNK_SIZE"]), chunk_overlap = int(os.environ["CHUNK_OVERLAP"]))
-pinecone.init(api_key = os.environ["PINECONE_API_KEY"], environment = os.environ["ENVIRONMENT"])
+# pinecone.init()
 
 def embed_into_db(repo_url, local_repo_path):
     pinecone_index = os.environ["PINECONE_INDEX"]
     namespace = os.environ["NAMESPACE"]
-    index = pinecone.Index(pinecone_index)
+    index = pinecone.Index(index=pinecone_index, host= os.environ["PINECONE_HOST"], api_key = os.environ["PINECONE_API_KEY"])
     index.delete(delete_all = True, namespace = namespace)
     create_vector_db(repo_url, local_repo_path)
 

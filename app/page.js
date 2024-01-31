@@ -52,8 +52,7 @@ export default function Home() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-            'Authorization': `Bearer ${process.env.NEXT_PUBLIC_TTR_API_KEY}`,
-                'Authorization': `Bearer ${process.env.NEXT_PUBLIC_TTR_API_KEY}`,
+                'Authorization': `Bearer ${process.env.NEXT_PUBLIC_TTR_API_KEY}`
             },
             body: JSON.stringify(userInputMessage),
         })
@@ -65,7 +64,10 @@ export default function Home() {
         try {
           const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/create_commit`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${process.env.NEXT_PUBLIC_TTR_API_KEY}`
+            },
             body: JSON.stringify(collectedCodeBlocks.map(block => ({ diff: block }))),
           });
 
@@ -117,8 +119,7 @@ export default function Home() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-            'Authorization': `Bearer ${process.env.NEXT_PUBLIC_TTR_API_KEY}`,
-                'Authorization': `Bearer ${process.env.NEXT_PUBLIC_TTR_API_KEY}`,
+                'Authorization': `Bearer ${process.env.NEXT_PUBLIC_TTR_API_KEY}`
             },
             body: JSON.stringify(updatedMessages),
         })
