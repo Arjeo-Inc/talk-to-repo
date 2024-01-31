@@ -16,10 +16,12 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 load_dotenv()
 
+EMBEDDING_MODEL = "text-embedding-3-large"
+
 embeddings = OpenAIEmbeddings(
     openai_api_key = os.environ["OPENAI_API_KEY"], 
     openai_organization = os.environ["OPENAI_ORG_ID"], \
-    model = "text-embedding-3-large")
+    model = EMBEDDING_MODEL)
 encoder = tiktoken.get_encoding("cl100k_base")
 
 def clone_from_github(REPO_URL, LOCAL_REPO_PATH):
@@ -108,7 +110,7 @@ def embed_into_db(repo_url, local_repo_path):
     index.delete(delete_all = True, namespace = namespace)
     create_vector_db(repo_url, local_repo_path)
 
-def embedding_search(query, k): return Pinecone.from_existing_index(os.environ["PINECONE_INDEX"], OpenAIEmbeddings(openai_api_key = os.environ["OPENAI_API_KEY"], openai_organization = os.environ["OPENAI_ORG_ID"], ), text_key = "text", namespace = os.environ["NAMESPACE"], ).similarity_search(query, k = k)
+def embedding_search(query, k): return Pinecone.from_existing_index(os.environ["PINECONE_INDEX"], OpenAIEmbeddings(openai_api_key = os.environ["OPENAI_API_KEY"], openai_organization = os.environ["OPENAI_ORG_ID"], model = EMBEDDING_MODEL), text_key = "text", namespace = os.environ["NAMESPACE"], ).similarity_search(query, k = k)
 
 def create_vector_db(REPO_URL, LOCAL_REPO_PATH):
     clone_from_github(REPO_URL, LOCAL_REPO_PATH)
