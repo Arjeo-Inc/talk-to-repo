@@ -235,7 +235,7 @@ async def chat_completions(request: Request, is_api_key_valid: bool = Depends(ve
     #     raise HTTPException(status_code=400, detail="Invalid model specified")
 
     # Assume openai.ChatCompletion.create() is defined elsewhere in the application
-    response = openai.ChatCompletion.create(
+    response = client.ChatCompletion.create(
         model=body['model'],
         messages=body['messages'],
         max_tokens=1000,  # This would be part of the 'openai.ChatCompletion.create' function call
@@ -269,7 +269,7 @@ async def chat_completions(request: Request, is_api_key_valid: bool = Depends(ve
                     "content": function_response,
                 }
             ) # extend conversation with function response
-        second_response = openai.ChatCompletion.create(
+        second_response = client.ChatCompletion.create(
             model="gpt-4-1106-preview",
             messages=body['messages'],
         ) # get a new response from the model where it can see the function response
