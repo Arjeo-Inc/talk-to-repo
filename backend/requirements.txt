@@ -11,5 +11,5 @@ python-dotenv
 detect_secrets
 python-patch
 anthropic
-sentence_transformers
+#sentence_transformers
 langchain_openai

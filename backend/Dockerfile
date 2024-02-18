@@ -18,9 +18,10 @@ RUN apt-get update && apt-get install -y \
  # Create a working directory.
 RUN mkdir /app
 WORKDIR /app
+COPY requirements.txt /app/requirements.txt
 
-COPY . /app/
 RUN /root/.cargo/bin/uv pip install --no-cache -r requirements.txt
+COPY . /app/
 
 EXPOSE 8000
 
