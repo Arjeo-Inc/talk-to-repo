@@ -1,4 +1,7 @@
-FROM python:3.10-slim
+FROM python:3.12
+ENV VIRTUAL_ENV=/usr/local
+ADD --chmod=755 https://astral.sh/uv/install.sh /install.sh
+RUN /install.sh && rm /install.sh
 
 # Install some basic utilities.
 RUN apt-get update && apt-get install -y \
@@ -17,7 +20,7 @@ RUN mkdir /app
 WORKDIR /app
 
 COPY . /app/
-RUN pip install -r requirements.txt
+RUN /root/.cargo/bin/uv pip install --no-cache -r requirements.txt
 
 EXPOSE 8000
 
