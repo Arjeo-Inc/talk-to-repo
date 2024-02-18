@@ -65,6 +65,7 @@ jobs:
                   "ENVIRONMENT": "${{ secrets.ENVIRONMENT }}",
                   "PINECONE_PROJECT_ID": "${{ secrets.PINECONE_PROJECT_ID }}",
                   "PINECONE_INDEX": "${{ secrets.PINECONE_INDEX }}",
+                  "PINECONE_HOST": "${{ secrets.PINECONE_HOST }}",
                   "NAMESPACE": "${{ secrets.NAMESPACE }}",
                   "MODEL_NAME": "${{ secrets.MODEL_NAME }}",
                   "TEMPERATURE": "${{ secrets.TEMPERATURE }}",
