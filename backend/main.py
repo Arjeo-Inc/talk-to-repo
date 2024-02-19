@@ -117,19 +117,37 @@ def format_context(docs, LOCAL_REPO_PATH):
     corpus_summary = pd.read_csv("data/corpus_summary.csv")
     aggregated_docs = {}
     for d in docs:
+        print(f"\n*** Document metadata ***: {d.metadata}\n")
         document_id = d.metadata["document_id"]
+        
+        original_url = d.metadata.get("original_url", None)
+        print(f"Original URL: {original_url}")
+
         start_location = (str(d.metadata["start_line"]), str(d.metadata["start_position"]))
         end_location = (str(d.metadata["end_line"]), str(d.metadata["end_position"]))
         if document_id in aggregated_docs:
             aggregated_docs[document_id]["content"].append(d.page_content)
             aggregated_docs[document_id]["segments"].append((start_location, end_location))
-        else: aggregated_docs[document_id] = {"content": [d.page_content], "segments": [(start_location, end_location)]}
+            if original_url is not None:
+                aggregated_docs[document_id]["original_url"] = original_url  # Ensure original_url is stored
+
+        else: 
+            aggregated_docs[document_id] = {
+                "content": [d.page_content], 
+                "segments": [(start_location, end_location)]
+            }
+            if original_url is not None:
+                aggregated_docs[document_id]["original_url"] = original_url
     context_parts = []
     for i, (document_id, data_parts) in enumerate(aggregated_docs.items()):
         content_parts = data_parts["content"]
         context_segments = data_parts["segments"]
+        original_url = data_parts.get("original_url", None)
         for i in range(len(context_segments)):
-            context_parts.append(f"[{i}] this segment contains text from line {context_segments[i][0][0]} in position {context_segments[i][0][1]}  \n to line {context_segments[i][1][0]} and position {context_segments[i][1][1]}" + f" of file {document_id}:\n {add_line_numbers(content_parts[i], start = context_segments[i][0][0])}" + "\n---\n")
+            if original_url is not None:
+                context_parts.append(f"[{i}] this segment contains text from line {context_segments[i][0][0]} in position {context_segments[i][0][1]}  \n to line {context_segments[i][1][0]} and position {context_segments[i][1][1]}" + f" of file {document_id} (URL: {original_url}):\n {add_line_numbers(content_parts[i], start = context_segments[i][0][0])}" + "\n---\n")
+            else:
+                context_parts.append(f"[{i}] this segment contains text from line {context_segments[i][0][0]} in position {context_segments[i][0][1]}  \n to line {context_segments[i][1][0]} and position {context_segments[i][1][1]}" + f" of file {document_id}:\n {add_line_numbers(content_parts[i], start = context_segments[i][0][0])}" + "\n---\n")
     return "\n\n".join(context_parts)
 
 def repl(m):
@@ -223,7 +241,7 @@ async def chat_completions(request: Request, is_api_key_valid: bool = Depends(ve
     
     body = await request.json()  # Parse the request body to a Python dict
     
-    print(f"body['messages']: {body['messages']}")
+    # print(f"body['messages']: {body['messages']}")
     
 
     # Make sure the required fields are present

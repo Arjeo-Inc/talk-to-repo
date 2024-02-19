@@ -53,6 +53,7 @@ def create_documents_with_met(splitter, texts, metadatas = None):
         index = -1
         for chunk in splitter.split_text(text):
             metadata = copy.deepcopy(_metadatas[i])
+            # print(f"META: {metadata}")
             index = text.find(chunk, index + 1)
             start_coordinates = index_to_coordinates(text, index)
             end_coordinates = index_to_coordinates(text, index + len(chunk))
@@ -65,9 +66,29 @@ def create_documents_with_met(splitter, texts, metadatas = None):
             documents.append(new_doc)
     return documents
 
+# # Path to your JSON file
+# doc_url_map_path = 'doc_url_map.json'
+
+# # Load the JSON content from the file into a variable
+# with open(doc_url_map_path, 'r') as file:
+#     doc_url_map = json.load(file)
+
 def process_file_list(temp_dir):
     with open(".db-ignore-files.txt", "r") as f: unwanted_files = tuple(f.read().strip().splitlines())
     with open(".db-ignore-extensions.txt", "r") as f: unwanted_extensions = tuple(f.read().strip().splitlines())
+    
+    doc_url_map_path = os.path.join(temp_dir, 'doc_url_map.json')
+    print(f"doc_url_map_path: {doc_url_map_path}")
+    if os.path.isfile(doc_url_map_path):
+        with open(doc_url_map_path, 'r') as file:
+            doc_url_map = json.load(file)
+        print("doc_url_map.json exists in the local repository path.")
+    else:
+        # If the file does not exist, provide a default empty dictionary or handle accordingly
+        doc_url_map = None
+        print("Warning: doc_url_map.json does not exist in the local repository path.")
+
+
     corpus_summary = []
     file_texts, metadatas = [], []
     for root, _, files in os.walk(temp_dir):
@@ -89,7 +110,17 @@ def process_file_list(temp_dir):
                     file_path = file_path.replace(temp_dir, "").lstrip("/")
                     corpus_summary.append({"file_name": file_path, "n_tokens": len(encoder.encode(file_contents, disallowed_special=()))})
                     file_texts.append(file_contents)
-                    metadatas.append({"document_id": file_path})
+                    if doc_url_map is None:
+                        metadatas.append({"document_id": file_path})
+                    else:
+                        org_url = doc_url_map.get(filename)
+                        if not org_url: 
+                            combined_metadata = {"document_id": file_path, "original_url": "unknown"}
+                            print(f"{filename} | unknown URL\n") 
+                        else:
+                            combined_metadata = {"document_id": file_path, "original_url": org_url}
+                            print(f"{filename} | {org_url}\n") 
+                        metadatas.append(combined_metadata)
     split_documents = create_documents_with_met(splitter, file_texts, metadatas = metadatas)
 
 
