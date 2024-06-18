@@ -25,12 +25,14 @@ from langchain_core.callbacks.manager import AsyncCallbackManager
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
 from langchain_core.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 
+
+load_dotenv()
+
 if os.environ.get("USE_CHROMA", "false") == "true":
     from create_vector_db_chroma import embedding_search, embed_into_db
 else:
     from create_vector_db import embedding_search, embed_into_db
 
-load_dotenv()
 app = FastAPI()
 client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 

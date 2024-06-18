@@ -9,7 +9,7 @@ import pandas as pd
 from pathlib import Path
 from dotenv import load_dotenv
 from langchain.docstore.document import Document
-from langchain.embeddings import OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 load_dotenv()
@@ -92,25 +92,29 @@ def process_file_list(temp_dir):
     return ret
 
 from tqdm import tqdm
+import chromadb
 from chromadb.config import Settings
-from langchain.llms import HumanInputLLM
-from langchain.vectorstores import Chroma
-from langchain.embeddings import HuggingFaceEmbeddings
+from langchain_community.llms import HumanInputLLM
+from langchain_community.vectorstores import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.chains.retrieval_qa.base import RetrievalQA
 from langchain.callbacks.manager import CallbackManagerForChainRun
 
 EMBEDDINGS_MODEL_NAME = 'msmarco-bert-base-dot-v5'
 PERSIST_DIRECTORY = 'data/chroma'
-CHROMA_SETTINGS = Settings(chroma_db_impl = 'duckdb+parquet', persist_directory = PERSIST_DIRECTORY, anonymized_telemetry = False)
+# CHROMA_SETTINGS = Settings(chroma_db_impl = 'duckdb+parquet', persist_directory = PERSIST_DIRECTORY, anonymized_telemetry = False)
 
 class JustRetrieve(RetrievalQA):
 
     def _call(self, inputs, run_manager = None):
         _run_manager = run_manager or CallbackManagerForChainRun.get_noop_manager()
-        docs = self._get_docs(inputs['query'])
+        docs = self._get_docs(inputs['query'], run_manager = _run_manager)
         return {'result': docs}
 
-db = Chroma(persist_directory = PERSIST_DIRECTORY, embedding_function = HuggingFaceEmbeddings(model_name = EMBEDDINGS_MODEL_NAME, cache_folder = 'data'), client_settings = Settings(chroma_db_impl = 'duckdb+parquet', persist_directory = PERSIST_DIRECTORY, anonymized_telemetry = False))
+client = chromadb.PersistentClient(path=PERSIST_DIRECTORY)
+embedding_function = HuggingFaceEmbeddings(model_name = EMBEDDINGS_MODEL_NAME)
+
+db = Chroma(client = client, embedding_function= embedding_function)
 
 def add_docs(docs):
     global db
@@ -118,7 +122,7 @@ def add_docs(docs):
     if len(texts) > 100:
         for i in tqdm(list(range(0, len(texts), 100)), desc = 'Adding texts to db'): db.add_documents(texts[i:i+100])
     else: db.add_documents(texts)
-    db.persist()
+    # db.persist()
 
 splitter = RecursiveCharacterTextSplitter(chunk_size = int(os.environ["CHUNK_SIZE"]), chunk_overlap = int(os.environ["CHUNK_OVERLAP"]))
 
@@ -127,7 +131,7 @@ def embedding_search(query, k):
     db_ret = db.as_retriever()
     db_ret.search_kwargs['k'] = k
     retriever = JustRetrieve.from_chain_type(llm = HumanInputLLM(verbose = False), chain_type = "stuff", retriever = db_ret)
-    return retriever._call({'query': query})
+    return retriever._call({'query': query})['result']
 
 def create_vector_db(REPO_URL, LOCAL_REPO_PATH):
     clone_from_github(REPO_URL, LOCAL_REPO_PATH)
