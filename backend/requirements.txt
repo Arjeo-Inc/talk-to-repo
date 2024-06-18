@@ -13,3 +13,5 @@ python-patch
 anthropic
 #sentence_transformers
 langchain_openai
+langchain_community
+langchain-pinecone

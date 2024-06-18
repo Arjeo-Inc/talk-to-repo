@@ -9,7 +9,7 @@ import subprocess
 import pandas as pd
 from pathlib import Path
 from dotenv import load_dotenv
-from langchain_community.vectorstores import Pinecone
+from langchain_pinecone import Pinecone
 from langchain.docstore.document import Document
 from langchain_openai.embeddings import OpenAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -35,7 +35,10 @@ def clone_from_github(REPO_URL, LOCAL_REPO_PATH):
         subprocess.run(["git", "clone", "--depth", "4", repo_url, temp_dir], check = True)
     return
 
-def is_unwanted_file(file_name, unwanted_files, unwanted_extensions):
+def is_unwanted_file(file_name):
+    with open(".db-ignore-files.txt", "r") as f: unwanted_files = tuple(f.read().strip().splitlines())
+    with open(".db-ignore-extensions.txt", "r") as f: unwanted_extensions = tuple(f.read().strip().splitlines())
+
     if (file_name.endswith("/") or any(f in file_name for f in unwanted_files) or any(file_name.endswith(ext) for ext in unwanted_extensions)): return True
     return False
 
@@ -66,13 +69,11 @@ def create_documents_with_met(splitter, texts, metadatas = None):
     return documents
 
 def process_file_list(temp_dir):
-    with open(".db-ignore-files.txt", "r") as f: unwanted_files = tuple(f.read().strip().splitlines())
-    with open(".db-ignore-extensions.txt", "r") as f: unwanted_extensions = tuple(f.read().strip().splitlines())
     corpus_summary = []
     file_texts, metadatas = [], []
     for root, _, files in os.walk(temp_dir):
         for filename in files:
-            if not is_unwanted_file(filename, unwanted_files, unwanted_extensions):
+            if not is_unwanted_file(filename):
                 file_path = os.path.join(root, filename)
                 if Path(file_path).is_symlink(): continue
                 if ".git" in file_path: continue
